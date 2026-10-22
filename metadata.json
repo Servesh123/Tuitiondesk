@@ -1,0 +1,6 @@
+{
+  "name": "TuitionDesk",
+  "description": "Tuition management app for Indian coaching centres: fees with WhatsApp reminders, attendance alerts, test analysis, parent view with UPI payment, and owner insights.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
