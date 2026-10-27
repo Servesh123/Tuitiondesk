@@ -42,10 +42,50 @@ fun TestsScreen(
     val context = LocalContext.current
     val testScores by viewModel.testScores.collectAsState()
     val leaderboard by viewModel.leaderboard.collectAsState()
-    val latestTest = testScores.lastOrNull() ?: return
+    if (testScores.isEmpty()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(NeutralBg)
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceWhite),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Assessment,
+                        contentDescription = null,
+                        tint = NavyPrimary,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "No test records available",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Weekly tests, scorecards, and batch leaderboards will appear once tests are recorded.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+        }
+        return
+    }
 
+    val latestTest = testScores.last()
     var selectedTestIndex by remember { mutableStateOf(testScores.size - 1) }
     val activeTest = testScores.getOrElse(selectedTestIndex) { latestTest }
+
 
     LazyColumn(
         modifier = modifier

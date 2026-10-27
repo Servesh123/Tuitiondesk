@@ -22,7 +22,10 @@ class TuitionRepository(
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 ) {
 
-    val centreInfo = TuitionCentre()
+    // Institute & Teacher Profile
+    private val _centreInfo = MutableStateFlow(TuitionCentre())
+    val centreInfo: StateFlow<TuitionCentre> = _centreInfo.asStateFlow()
+    val currentCentreInfo: TuitionCentre get() = _centreInfo.value
 
     // Batches
     val batches = listOf(
@@ -32,12 +35,16 @@ class TuitionRepository(
         "JEE/NEET Foundation (7:30 PM)"
     )
 
-    // Fees State
-    private val _fees = MutableStateFlow<List<FeeRecord>>(initialFees())
+    // Students State (Clean initial state, synchronized with Room)
+    private val _students = MutableStateFlow<List<Student>>(emptyList())
+    val students: StateFlow<List<Student>> = _students.asStateFlow()
+
+    // Fees State (Clean initial state, synchronized with Room)
+    private val _fees = MutableStateFlow<List<FeeRecord>>(emptyList())
     val fees: StateFlow<List<FeeRecord>> = _fees.asStateFlow()
 
     // Attendance State: mapping batch to list of attendance entries
-    private val _attendance = MutableStateFlow<List<AttendanceEntry>>(initialAttendance())
+    private val _attendance = MutableStateFlow<List<AttendanceEntry>>(emptyList())
     val attendance: StateFlow<List<AttendanceEntry>> = _attendance.asStateFlow()
 
     // Selected batch for attendance
@@ -49,7 +56,7 @@ class TuitionRepository(
     val selectedStudentId: StateFlow<String> = _selectedStudentId.asStateFlow()
 
     // Enquiries State
-    private val _enquiries = MutableStateFlow<List<ReferralEnquiry>>(initialEnquiries())
+    private val _enquiries = MutableStateFlow<List<ReferralEnquiry>>(emptyList())
     val enquiries: StateFlow<List<ReferralEnquiry>> = _enquiries.asStateFlow()
 
     // Tests & Leaderboard State
@@ -60,51 +67,50 @@ class TuitionRepository(
     val leaderboard: StateFlow<List<StudentRank>> = _leaderboard.asStateFlow()
 
     // Homework State
-    private val _homeworks = MutableStateFlow<List<HomeworkItem>>(initialHomeworks())
+    private val _homeworks = MutableStateFlow<List<HomeworkItem>>(emptyList())
     val homeworks: StateFlow<List<HomeworkItem>> = _homeworks.asStateFlow()
 
     init {
-        // If a Room database instance is provided, initialize tables and synchronize flows
+        // If a Room database instance is provided, synchronize flows continuously
         if (database != null) {
             scope.launch {
-                seedInitialDataIfEmpty()
                 syncWithRoom()
             }
         }
     }
 
-    private suspend fun seedInitialDataIfEmpty() {
-        val db = database ?: return
-        if (db.studentDao().getStudentCount() == 0) {
-            val studentEntities = initialStudents().map { StudentEntity.fromDomain(it) }
-            db.studentDao().insertStudents(studentEntities)
-        }
-        if (db.feeDao().getFeeCount() == 0) {
-            val feeEntities = initialFees().map { FeeEntity.fromDomain(it) }
-            db.feeDao().insertFees(feeEntities)
-        }
-        if (db.attendanceDao().getAttendanceCountForDate("22 Oct 2026") == 0) {
-            val attendanceEntities = initialAttendance().map { AttendanceLogEntity.fromDomain(it, "22 Oct 2026") }
-            db.attendanceDao().insertAttendanceLogs(attendanceEntities)
-        }
-    }
-
     private suspend fun syncWithRoom() {
         val db = database ?: return
+        // Collect Students updates from Room
+        scope.launch {
+            db.studentDao().getAllStudents().collect { studentEntities ->
+                _students.value = studentEntities.map { it.toDomain() }
+                // If selectedStudentId is not in students, point to first available
+                if (_students.value.none { it.id == _selectedStudentId.value } && _students.value.isNotEmpty()) {
+                    _selectedStudentId.value = _students.value.first().id
+                }
+            }
+        }
+
         // Collect Fee updates from Room
         scope.launch {
             db.feeDao().getAllFees().collect { feeEntities ->
-                if (feeEntities.isNotEmpty()) {
-                    _fees.value = feeEntities.map { it.toDomain() }
-                }
+                _fees.value = feeEntities.map { it.toDomain() }
             }
         }
 
         // Collect Attendance updates from Room
         scope.launch {
             db.attendanceDao().getAttendanceForDate("22 Oct 2026").collect { logEntities ->
-                if (logEntities.isNotEmpty()) {
-                    _attendance.value = logEntities.map { it.toDomain() }
+                _attendance.value = logEntities.map { it.toDomain() }
+            }
+        }
+
+        // Collect Institute Profile updates from Room
+        scope.launch {
+            db.centreProfileDao().getProfile().collect { profileEntity ->
+                if (profileEntity != null) {
+                    _centreInfo.value = profileEntity.toDomain()
                 }
             }
         }
@@ -117,6 +123,154 @@ class TuitionRepository(
     fun selectStudent(studentId: String) {
         _selectedStudentId.value = studentId
     }
+
+    // --- Student CRUD Operations ---
+    fun addStudent(student: Student, initialFee: Int = 2500) {
+        database?.let { db ->
+            scope.launch {
+                db.studentDao().insertStudent(StudentEntity.fromDomain(student))
+                if (initialFee > 0) {
+                    val feeRecord = FeeRecord(
+                        id = "F-${System.currentTimeMillis() % 100000}",
+                        studentId = student.id,
+                        studentName = student.name,
+                        rollNo = student.rollNo,
+                        batchName = student.batchName,
+                        amountDue = initialFee,
+                        dueDate = "10th of Month",
+                        daysLate = 0,
+                        isPaid = false,
+                        parentPhone = student.parentPhone
+                    )
+                    db.feeDao().insertFee(FeeEntity.fromDomain(feeRecord))
+                }
+                val log = AttendanceLogEntity(
+                    studentId = student.id,
+                    studentName = student.name,
+                    rollNo = student.rollNo,
+                    batchId = student.batchId,
+                    batchName = student.batchName,
+                    parentPhone = student.parentPhone,
+                    parentName = student.parentName,
+                    isPresent = true,
+                    date = "22 Oct 2026"
+                )
+                db.attendanceDao().insertAttendanceLog(log)
+            }
+        } ?: run {
+            _students.update { it + student }
+            if (initialFee > 0) {
+                val feeRecord = FeeRecord(
+                    id = "F-${System.currentTimeMillis() % 100000}",
+                    studentId = student.id,
+                    studentName = student.name,
+                    rollNo = student.rollNo,
+                    batchName = student.batchName,
+                    amountDue = initialFee,
+                    dueDate = "10th of Month",
+                    daysLate = 0,
+                    isPaid = false,
+                    parentPhone = student.parentPhone
+                )
+                _fees.update { it + feeRecord }
+            }
+        }
+    }
+
+    fun updateStudent(student: Student) {
+        database?.let { db ->
+            scope.launch {
+                db.studentDao().insertStudent(StudentEntity.fromDomain(student))
+            }
+        } ?: run {
+            _students.update { list -> list.map { if (it.id == student.id) student else it } }
+        }
+    }
+
+    fun deleteStudent(studentId: String) {
+        database?.let { db ->
+            scope.launch {
+                db.studentDao().deleteStudentById(studentId)
+                val studentFees = _fees.value.filter { it.studentId == studentId }
+                studentFees.forEach { db.feeDao().deleteFeeById(it.id) }
+            }
+        } ?: run {
+            _students.update { list -> list.filter { it.id != studentId } }
+            _fees.update { list -> list.filter { it.studentId != studentId } }
+            _attendance.update { list -> list.filter { it.studentId != studentId } }
+        }
+    }
+
+    // --- Fee CRUD Operations ---
+    fun addFeeRecord(fee: FeeRecord) {
+        database?.let { db ->
+            scope.launch {
+                db.feeDao().insertFee(FeeEntity.fromDomain(fee))
+            }
+        } ?: run {
+            _fees.update { listOf(fee) + it }
+        }
+    }
+
+    fun deleteFeeRecord(feeId: String) {
+        database?.let { db ->
+            scope.launch {
+                db.feeDao().deleteFeeById(feeId)
+            }
+        } ?: run {
+            _fees.update { list -> list.filter { it.id != feeId } }
+        }
+    }
+
+    // --- Institute Profile Persistence ---
+    fun updateCentreProfile(centre: TuitionCentre) {
+        _centreInfo.value = centre
+        database?.let { db ->
+            scope.launch {
+                db.centreProfileDao().saveProfile(CentreProfileEntity.fromDomain(centre))
+            }
+        }
+    }
+
+    // --- Demo Data & Data Reset ---
+    fun loadDemoData() {
+        val sampleStudents = initialStudents()
+        val sampleFees = initialFees()
+        val sampleAttendance = initialAttendance()
+        val sampleEnquiries = initialEnquiries()
+        database?.let { db ->
+            scope.launch {
+                db.studentDao().insertStudents(sampleStudents.map { StudentEntity.fromDomain(it) })
+                db.feeDao().insertFees(sampleFees.map { FeeEntity.fromDomain(it) })
+                db.attendanceDao().insertAttendanceLogs(sampleAttendance.map { AttendanceLogEntity.fromDomain(it, "22 Oct 2026") })
+            }
+        } ?: run {
+            _students.value = sampleStudents
+            _fees.value = sampleFees
+            _attendance.value = sampleAttendance
+        }
+        _enquiries.value = sampleEnquiries
+        _testScores.value = initialTests()
+        _leaderboard.value = initialLeaderboard()
+        _homeworks.value = initialHomeworks()
+    }
+
+    fun clearAllData() {
+        database?.let { db ->
+            scope.launch {
+                db.studentDao().deleteAllStudents()
+                db.feeDao().deleteAllFees()
+                db.attendanceDao().deleteAllAttendance()
+            }
+        } ?: run {
+            _students.value = emptyList()
+            _fees.value = emptyList()
+            _attendance.value = emptyList()
+        }
+        _enquiries.value = emptyList()
+        _homeworks.value = emptyList()
+    }
+
 
     fun toggleAttendance(studentId: String) {
         val currentEntry = _attendance.value.find { it.studentId == studentId } ?: return
@@ -211,7 +365,7 @@ class TuitionRepository(
         if (com.example.network.whatsapp.WhatsAppBusinessApiClient.isApiConfigured()) {
             scope.launch {
                 onStatus?.invoke("Sending via WhatsApp Cloud API...")
-                val result = com.example.network.whatsapp.WhatsAppBusinessApiClient.sendFeeReminderAutomated(fee, centreInfo)
+                val result = com.example.network.whatsapp.WhatsAppBusinessApiClient.sendFeeReminderAutomated(fee, currentCentreInfo)
                 result.onSuccess { resp ->
                     val msgId = resp.messages?.firstOrNull()?.id ?: "OK"
                     val msg = "Automated reminder sent via WhatsApp Cloud API! (ID: $msgId)"
@@ -224,12 +378,12 @@ class TuitionRepository(
                     onStatus?.invoke(fallbackMsg)
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                         Toast.makeText(context, fallbackMsg, Toast.LENGTH_SHORT).show()
-                        com.example.util.WhatsAppIntentHelper.sendFeeReminder(context, fee, centreInfo)
+                        com.example.util.WhatsAppIntentHelper.sendFeeReminder(context, fee, currentCentreInfo)
                     }
                 }
             }
         } else {
-            com.example.util.WhatsAppIntentHelper.sendFeeReminder(context, fee, centreInfo)
+            com.example.util.WhatsAppIntentHelper.sendFeeReminder(context, fee, currentCentreInfo)
         }
     }
 
@@ -243,7 +397,7 @@ class TuitionRepository(
         if (com.example.network.whatsapp.WhatsAppBusinessApiClient.isApiConfigured()) {
             scope.launch {
                 onStatus?.invoke("Dispatching ${pending.size} reminders via WhatsApp Cloud API...")
-                val results = com.example.network.whatsapp.WhatsAppBusinessApiClient.sendBatchFeeReminders(pending, centreInfo)
+                val results = com.example.network.whatsapp.WhatsAppBusinessApiClient.sendBatchFeeReminders(pending, currentCentreInfo)
                 val successCount = results.count { it.second.isSuccess }
                 val msg = "Dispatched $successCount of ${pending.size} fee reminders via WhatsApp Cloud API!"
                 onStatus?.invoke(msg)
@@ -252,7 +406,7 @@ class TuitionRepository(
                 }
             }
         } else {
-            com.example.util.WhatsAppIntentHelper.sendBatchFeeReminders(context, pending, centreInfo)
+            com.example.util.WhatsAppIntentHelper.sendBatchFeeReminders(context, pending, currentCentreInfo)
         }
         return pending.size
     }
@@ -267,7 +421,7 @@ class TuitionRepository(
         if (com.example.network.whatsapp.WhatsAppBusinessApiClient.isApiConfigured()) {
             scope.launch {
                 onStatus?.invoke("Dispatching ${absentees.size} absent alerts via WhatsApp Cloud API...")
-                val results = com.example.network.whatsapp.WhatsAppBusinessApiClient.sendBatchAbsentAlerts(absentees, centreInfo)
+                val results = com.example.network.whatsapp.WhatsAppBusinessApiClient.sendBatchAbsentAlerts(absentees, currentCentreInfo)
                 val successCount = results.count { it.second.isSuccess }
                 val msg = "Dispatched $successCount of ${absentees.size} absent alerts via WhatsApp Cloud API!"
                 onStatus?.invoke(msg)
@@ -276,7 +430,7 @@ class TuitionRepository(
                 }
             }
         } else {
-            com.example.util.WhatsAppIntentHelper.sendBatchAbsentAlerts(context, absentees, batchName, centreInfo)
+            com.example.util.WhatsAppIntentHelper.sendBatchAbsentAlerts(context, absentees, batchName, currentCentreInfo)
         }
         return absentees
     }
@@ -285,7 +439,7 @@ class TuitionRepository(
         if (com.example.network.whatsapp.WhatsAppBusinessApiClient.isApiConfigured()) {
             scope.launch {
                 onStatus?.invoke("Sending absent alert via WhatsApp Cloud API...")
-                val result = com.example.network.whatsapp.WhatsAppBusinessApiClient.sendAbsentAlertAutomated(entry, centreInfo)
+                val result = com.example.network.whatsapp.WhatsAppBusinessApiClient.sendAbsentAlertAutomated(entry, currentCentreInfo)
                 result.onSuccess { resp ->
                     val msgId = resp.messages?.firstOrNull()?.id ?: "OK"
                     val msg = "Absence alert delivered to ${entry.parentName} via WhatsApp API! (ID: $msgId)"
@@ -298,28 +452,29 @@ class TuitionRepository(
                     onStatus?.invoke(fallbackMsg)
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                         Toast.makeText(context, fallbackMsg, Toast.LENGTH_SHORT).show()
-                        com.example.util.WhatsAppIntentHelper.sendAbsentAlert(context, entry, centreInfo)
+                        com.example.util.WhatsAppIntentHelper.sendAbsentAlert(context, entry, currentCentreInfo)
                     }
                 }
             }
         } else {
-            com.example.util.WhatsAppIntentHelper.sendAbsentAlert(context, entry, centreInfo)
+            com.example.util.WhatsAppIntentHelper.sendAbsentAlert(context, entry, currentCentreInfo)
         }
     }
 
     fun shareTestReportWhatsApp(context: Context, test: TestScoreItem) {
-        com.example.util.WhatsAppIntentHelper.sendTestScorecard(context, test, centreInfo)
+        com.example.util.WhatsAppIntentHelper.sendTestScorecard(context, test, currentCentreInfo)
     }
 
     fun launchUpiPayment(context: Context, studentName: String, amount: Int) {
         val request = com.example.util.UpiPaymentRequest(
-            payeeVpa = centreInfo.upiId,
-            payeeName = centreInfo.name,
+            payeeVpa = currentCentreInfo.upiId,
+            payeeName = currentCentreInfo.name,
             amount = amount.toDouble(),
             transactionNote = "Tuition Fee - $studentName"
         )
         com.example.util.UpiPaymentHelper.launchUpiPayment(context, request)
     }
+
 
     // --- Initial Mock Data Providers ---
 

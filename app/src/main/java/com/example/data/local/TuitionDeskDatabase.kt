@@ -13,9 +13,10 @@ import androidx.room.RoomDatabase
     entities = [
         StudentEntity::class,
         FeeEntity::class,
-        AttendanceLogEntity::class
+        AttendanceLogEntity::class,
+        CentreProfileEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class TuitionDeskDatabase : RoomDatabase() {
@@ -23,6 +24,8 @@ abstract class TuitionDeskDatabase : RoomDatabase() {
     abstract fun studentDao(): StudentDao
     abstract fun feeDao(): FeeDao
     abstract fun attendanceDao(): AttendanceDao
+    abstract fun centreProfileDao(): CentreProfileDao
+
 
     companion object {
         @Volatile

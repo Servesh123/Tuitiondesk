@@ -205,7 +205,7 @@ fun ExportShareDialog(
                             OutlinedButton(
                                 onClick = {
                                     val fee = selectedReceiptFee ?: fees.first()
-                                    val receipt = ReportExportHelper.generateFeeReceiptText(viewModel.centreInfo, fee)
+                                    val receipt = ReportExportHelper.generateFeeReceiptText(viewModel.centreInfo.value, fee)
                                     ReportExportHelper.downloadToDevice(context, "Receipt_${fee.studentName.replace(" ", "_")}.txt", receipt, "text/plain")
                                 },
                                 shape = RoundedCornerShape(8.dp),
@@ -219,7 +219,7 @@ fun ExportShareDialog(
                             Button(
                                 onClick = {
                                     val fee = selectedReceiptFee ?: fees.first()
-                                    val receipt = ReportExportHelper.generateFeeReceiptText(viewModel.centreInfo, fee)
+                                    val receipt = ReportExportHelper.generateFeeReceiptText(viewModel.centreInfo.value, fee)
                                     val file = ReportExportHelper.saveContentToFile(context, "Receipt_${fee.studentName.replace(" ", "_")}.txt", receipt)
                                     ReportExportHelper.shareFile(context, file, "text/plain", "Share Official Fee Receipt")
                                 },

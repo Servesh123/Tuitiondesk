@@ -42,16 +42,18 @@ fun OwnerDashboardScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val centreInfo by viewModel.centreInfo.collectAsState()
+    val totalStudents by viewModel.totalStudentsCount.collectAsState()
     val enquiries by viewModel.enquiries.collectAsState()
     val showAddLead by viewModel.showAddLeadDialog.collectAsState()
     val showPitchSheet by viewModel.showPitchGuideSheet.collectAsState()
-    var isPitchPlaybookExpanded by remember { mutableStateOf(true) }
+    var isPitchPlaybookExpanded by remember { mutableStateOf(false) }
 
-    // Aggregate metrics
-    val totalCollected = 142000
-    val totalPending = 31000
+    // Dynamic aggregate metrics directly from Room database
+    val totalCollected by viewModel.totalCollectedAmount.collectAsState()
+    val totalPending by viewModel.totalPendingAmount.collectAsState()
     val totalProjected = totalCollected + totalPending
-    val collectedPct = (totalCollected * 100) / totalProjected
+    val collectedPct = if (totalProjected > 0) (totalCollected * 100) / totalProjected else 0
 
     LazyColumn(
         modifier = modifier
@@ -92,9 +94,10 @@ fun OwnerDashboardScreen(
                         }
 
                         Text(
-                            text = "October 2026",
+                            text = "$totalStudents Enrolled Students",
                             style = MaterialTheme.typography.bodySmall.copy(
-                                color = Color.White.copy(alpha = 0.8f),
+                                color = Color.White.copy(alpha = 0.85f),
+                                fontWeight = FontWeight.SemiBold,
                                 fontSize = 11.sp
                             )
                         )
@@ -103,7 +106,7 @@ fun OwnerDashboardScreen(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = viewModel.centreInfo.name,
+                        text = centreInfo.name.ifBlank { "Vidya Tutorials & Coaching" },
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -111,13 +114,14 @@ fun OwnerDashboardScreen(
                     )
 
                     Text(
-                        text = "${viewModel.centreInfo.ownerName} • ${viewModel.centreInfo.location}",
+                        text = "${centreInfo.ownerName.ifBlank { "Director" }} • ${centreInfo.location.ifBlank { "Main Campus" }}",
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = Color.White.copy(alpha = 0.8f),
                             fontSize = 11.sp
                         )
                     )
                 }
+
             }
         }
 
@@ -532,21 +536,20 @@ fun OwnerDashboardScreen(
                             onClick = {
                                 val report = """
                                     TUITIONDESK MONTHLY AUDIT REPORT
-                                    Institute: ${viewModel.centreInfo.name}
-                                    Director: ${viewModel.centreInfo.ownerName}
-                                    Month: October 2026
+                                    Institute: ${centreInfo.name}
+                                    Director: ${centreInfo.ownerName}
+                                    Contact: ${centreInfo.phone}
                                     ----------------------------------------
-                                    Monthly Revenue Target: ₹1,73,000
-                                    Fees Collected        : ₹1,42,000 (82%)
-                                    Fees Pending          : ₹31,000 (18%)
-                                    Total Active Students : 64
-                                    Active Batches        : 4
-                                    Average Attendance    : 86%
+                                    Total Expected Fees   : ₹$totalProjected
+                                    Fees Collected        : ₹$totalCollected ($collectedPct%)
+                                    Fees Pending          : ₹$totalPending
+                                    Total Active Students : $totalStudents
                                     New Referral Leads    : ${enquiries.size} in pipeline
                                     ----------------------------------------
-                                    Generated via TuitionDesk on 22 Oct 2026
+                                    Generated via TuitionDesk Pro
                                 """.trimIndent()
                                 com.example.util.ReportExportHelper.downloadToDevice(
+
                                     context,
                                     "TuitionDesk_Audit_Report_Oct2026.txt",
                                     report,
@@ -671,7 +674,7 @@ fun OwnerDashboardScreen(
                 onWhatsApp = {
                     val cleanPhone = lead.parentPhone.replace(Regex("[^0-9]"), "")
                     val formatted = if (cleanPhone.length == 10) "91$cleanPhone" else cleanPhone
-                    val msg = "Namaste ${lead.parentName} Ji, this is regarding ${lead.studentName}'s tuition inquiry at ${viewModel.centreInfo.name}."
+                    val msg = "Namaste ${lead.parentName} Ji, this is regarding ${lead.studentName}'s tuition inquiry at ${centreInfo.name}."
                     val url = "https://api.whatsapp.com/send?phone=$formatted&text=${Uri.encode(msg)}"
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                     try {

@@ -36,17 +36,19 @@ fun ParentViewScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val centreInfo by viewModel.centreInfo.collectAsState()
+    val allStudents by viewModel.students.collectAsState()
     val selectedStudentId by viewModel.selectedStudentId.collectAsState()
     val homeworks by viewModel.homeworks.collectAsState()
     val currentFee by viewModel.selectedStudentFee.collectAsState()
     var showUpiSheet by remember { mutableStateOf(false) }
 
-    // Demo student options
-    val studentProfiles = listOf(
-        Triple("S01", "Aarav Sharma", "Class 10 - Maths & Science"),
-        Triple("S05", "Priya Patel", "Class 10 - All Subjects"),
-        Triple("S02", "Rohan Verma", "Class 10 - Maths")
-    )
+    // Dynamic students from database
+    val studentProfiles = if (allStudents.isNotEmpty()) {
+        allStudents.map { Triple(it.id, it.name, "${it.batchName.substringBefore(" (")} (Roll: ${it.rollNo})") }
+    } else {
+        listOf(Triple("NONE", "No Enrolled Students", "Add students in Students tab"))
+    }
 
     val currentStudent = studentProfiles.find { it.first == selectedStudentId } ?: studentProfiles[0]
 
@@ -267,7 +269,7 @@ fun ParentViewScreen(
                             OutlinedButton(
                                 onClick = {
                                     val fee = currentFee ?: return@OutlinedButton
-                                    val receipt = com.example.util.ReportExportHelper.generateFeeReceiptText(viewModel.centreInfo, fee)
+                                    val receipt = com.example.util.ReportExportHelper.generateFeeReceiptText(centreInfo, fee)
                                     com.example.util.ReportExportHelper.downloadToDevice(
                                         context,
                                         "Fee_Receipt_${fee.studentName.replace(" ", "_")}.txt",
@@ -288,7 +290,7 @@ fun ParentViewScreen(
                             Button(
                                 onClick = {
                                     val fee = currentFee ?: return@Button
-                                    val receipt = com.example.util.ReportExportHelper.generateFeeReceiptText(viewModel.centreInfo, fee)
+                                    val receipt = com.example.util.ReportExportHelper.generateFeeReceiptText(centreInfo, fee)
                                     val file = com.example.util.ReportExportHelper.saveContentToFile(
                                         context,
                                         "Fee_Receipt_${fee.studentName.replace(" ", "_")}.txt",
@@ -355,7 +357,7 @@ fun ParentViewScreen(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Instant UPI receipt to ${viewModel.centreInfo.upiId}",
+                                text = "Instant UPI receipt to ${centreInfo.upiId}",
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = TextSecondary,
                                     fontSize = 10.sp
@@ -574,7 +576,7 @@ fun ParentViewScreen(
             text = {
                 Column {
                     Text(
-                        text = "Pay ₹${currentFee?.amountDue ?: 2500} directly to ${viewModel.centreInfo.name}:",
+                        text = "Pay ₹${currentFee?.amountDue ?: 2500} directly to ${centreInfo.name}:",
                         style = MaterialTheme.typography.bodyMedium
                     )
 
@@ -602,7 +604,7 @@ fun ParentViewScreen(
                                     )
                                 )
                                 Text(
-                                    text = viewModel.centreInfo.upiId,
+                                    text = centreInfo.upiId,
                                     style = MaterialTheme.typography.titleSmall.copy(
                                         fontWeight = FontWeight.Bold,
                                         color = NavyPrimary
@@ -613,7 +615,7 @@ fun ParentViewScreen(
                             IconButton(
                                 onClick = {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clip = ClipData.newPlainText("UPI ID", viewModel.centreInfo.upiId)
+                                    val clip = ClipData.newPlainText("UPI ID", centreInfo.upiId)
                                     clipboard.setPrimaryClip(clip)
                                     Toast.makeText(context, "UPI ID copied to clipboard!", Toast.LENGTH_SHORT).show()
                                 }
@@ -630,8 +632,8 @@ fun ParentViewScreen(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     val upiRequest = com.example.util.UpiPaymentRequest(
-                        payeeVpa = viewModel.centreInfo.upiId,
-                        payeeName = viewModel.centreInfo.name,
+                        payeeVpa = centreInfo.upiId,
+                        payeeName = centreInfo.name,
                         amount = (currentFee?.amountDue ?: 2500).toDouble(),
                         transactionNote = "Tuition Fee - ${currentStudent.second}"
                     )

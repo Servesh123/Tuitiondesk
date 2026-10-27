@@ -160,3 +160,40 @@ data class AttendanceLogEntity(
         )
     }
 }
+
+/**
+ * Room Entity representing Coaching Institute and Teacher profile.
+ * Persistently stores institute name, tagline, teacher name, phone, UPI ID, and address.
+ */
+@Entity(tableName = "institute_profile")
+data class CentreProfileEntity(
+    @PrimaryKey val id: Int = 1,
+    val name: String = "Vidya Tutorials & Coaching",
+    val tagline: String = "CBSE & ICSE Excellence Hub",
+    val ownerName: String = "Er. Rajesh Sharma (Director)",
+    val phone: String = "+91 98765 43210",
+    val upiId: String = "vidyatutorials@okhdfcbank",
+    val location: String = "Sector 14, Main Market, Delhi NCR"
+) {
+    fun toDomain(): com.example.model.TuitionCentre = com.example.model.TuitionCentre(
+        name = name,
+        tagline = tagline,
+        ownerName = ownerName,
+        phone = phone,
+        upiId = upiId,
+        location = location
+    )
+
+    companion object {
+        fun fromDomain(centre: com.example.model.TuitionCentre): CentreProfileEntity = CentreProfileEntity(
+            id = 1,
+            name = centre.name,
+            tagline = centre.tagline,
+            ownerName = centre.ownerName,
+            phone = centre.phone,
+            upiId = centre.upiId,
+            location = centre.location
+        )
+    }
+}
+

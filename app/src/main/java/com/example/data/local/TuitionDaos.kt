@@ -29,6 +29,9 @@ interface StudentDao {
 
     @Query("SELECT COUNT(*) FROM students")
     suspend fun getStudentCount(): Int
+
+    @Query("DELETE FROM students")
+    suspend fun deleteAllStudents()
 }
 
 /**
@@ -63,6 +66,9 @@ interface FeeDao {
 
     @Query("SELECT COUNT(*) FROM fee_records")
     suspend fun getFeeCount(): Int
+
+    @Query("DELETE FROM fee_records")
+    suspend fun deleteAllFees()
 }
 
 /**
@@ -94,4 +100,24 @@ interface AttendanceDao {
 
     @Query("SELECT COUNT(*) FROM attendance_logs WHERE date = :date")
     suspend fun getAttendanceCountForDate(date: String): Int
+
+    @Query("DELETE FROM attendance_logs")
+    suspend fun deleteAllAttendance()
 }
+
+/**
+ * Data Access Object for Institute and Teacher Profile.
+ */
+@Dao
+interface CentreProfileDao {
+
+    @Query("SELECT * FROM institute_profile WHERE id = 1 LIMIT 1")
+    fun getProfile(): Flow<CentreProfileEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveProfile(profile: CentreProfileEntity)
+
+    @Query("SELECT COUNT(*) FROM institute_profile")
+    suspend fun getProfileCount(): Int
+}
+

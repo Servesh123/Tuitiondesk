@@ -13,11 +13,11 @@ import androidx.lifecycle.AndroidViewModel
 import com.example.data.local.TuitionDeskDatabase
 
 enum class TuitionTab(val title: String) {
-    FEES("Fees"),
+    DASHBOARD("Dashboard"),
+    STUDENTS("Students"),
     ATTENDANCE("Attendance"),
-    TESTS("Tests"),
-    PARENT("Parent View"),
-    OWNER("Owner")
+    FEES("Fees"),
+    SETTINGS("Profile")
 }
 
 enum class FeeFilter {
@@ -34,7 +34,7 @@ class TuitionViewModel(
         database = TuitionDeskDatabase.getDatabase(application)
     )
 
-    private val _currentTab = MutableStateFlow(TuitionTab.FEES)
+    private val _currentTab = MutableStateFlow(TuitionTab.DASHBOARD)
     val currentTab: StateFlow<TuitionTab> = _currentTab.asStateFlow()
 
     private val _feeFilter = MutableStateFlow(FeeFilter.ALL)
@@ -42,6 +42,13 @@ class TuitionViewModel(
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    // Students filter & search
+    private val _studentSearchQuery = MutableStateFlow("")
+    val studentSearchQuery: StateFlow<String> = _studentSearchQuery.asStateFlow()
+
+    private val _studentBatchFilter = MutableStateFlow<String?>(null)
+    val studentBatchFilter: StateFlow<String?> = _studentBatchFilter.asStateFlow()
 
     // Dialog & bottom sheet states
     private val _showAllReminderDialog = MutableStateFlow(false)
@@ -52,6 +59,12 @@ class TuitionViewModel(
 
     private val _absentAlertList = MutableStateFlow<List<AttendanceEntry>>(emptyList())
     val absentAlertList: StateFlow<List<AttendanceEntry>> = _absentAlertList.asStateFlow()
+
+    private val _showAddStudentDialog = MutableStateFlow(false)
+    val showAddStudentDialog: StateFlow<Boolean> = _showAddStudentDialog.asStateFlow()
+
+    private val _showAddFeeDialog = MutableStateFlow(false)
+    val showAddFeeDialog: StateFlow<Boolean> = _showAddFeeDialog.asStateFlow()
 
     private val _showAddLeadDialog = MutableStateFlow(false)
     val showAddLeadDialog: StateFlow<Boolean> = _showAddLeadDialog.asStateFlow()
@@ -65,7 +78,14 @@ class TuitionViewModel(
     private val _showWhatsAppApiSettings = MutableStateFlow(false)
     val showWhatsAppApiSettings: StateFlow<Boolean> = _showWhatsAppApiSettings.asStateFlow()
 
+    private val _showParentPortalDialog = MutableStateFlow(false)
+    val showParentPortalDialog: StateFlow<Boolean> = _showParentPortalDialog.asStateFlow()
+
+    private val _showTestsReportDialog = MutableStateFlow(false)
+    val showTestsReportDialog: StateFlow<Boolean> = _showTestsReportDialog.asStateFlow()
+
     // Data streams from repository
+    val students = repository.students
     val fees = repository.fees
     val attendance = repository.attendance
     val selectedBatch = repository.selectedBatch
@@ -78,6 +98,18 @@ class TuitionViewModel(
     val centreInfo = repository.centreInfo
 
     // Derived states
+    val filteredStudents = combine(students, studentSearchQuery, studentBatchFilter) { list, query, batch ->
+        list.filter { student ->
+            val matchesBatch = batch == null || student.batchName == batch
+            val matchesQuery = query.isBlank() ||
+                    student.name.contains(query, ignoreCase = true) ||
+                    student.rollNo.contains(query, ignoreCase = true) ||
+                    student.parentPhone.contains(query, ignoreCase = true) ||
+                    student.parentName.contains(query, ignoreCase = true)
+            matchesBatch && matchesQuery
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val filteredFees = combine(fees, feeFilter, searchQuery) { list, filter, query ->
         list.filter { fee ->
             val matchesFilter = when (filter) {
@@ -92,6 +124,8 @@ class TuitionViewModel(
             matchesFilter && matchesQuery
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val totalStudentsCount = students.map { it.size }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val totalPendingAmount = fees.map { list ->
         list.filter { !it.isPaid }.sumOf { it.amountDue }
@@ -109,6 +143,10 @@ class TuitionViewModel(
         list.filter { it.batchName == batch }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val overallAttendancePct = attendance.map { list ->
+        if (list.isEmpty()) 0 else (list.count { it.isPresent } * 100) / list.size
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
     val selectedStudentFee = combine(fees, selectedStudentId) { list, studentId ->
         list.find { it.studentId == studentId } ?: list.firstOrNull()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -125,6 +163,14 @@ class TuitionViewModel(
         _searchQuery.value = query
     }
 
+    fun setStudentSearchQuery(query: String) {
+        _studentSearchQuery.value = query
+    }
+
+    fun setStudentBatchFilter(batch: String?) {
+        _studentBatchFilter.value = batch
+    }
+
     fun selectBatch(batch: String) {
         repository.selectBatch(batch)
     }
@@ -133,6 +179,72 @@ class TuitionViewModel(
         repository.selectStudent(studentId)
     }
 
+    // --- Student Actions ---
+    fun addStudent(
+        name: String,
+        rollNo: String,
+        batchName: String,
+        parentName: String,
+        parentPhone: String,
+        initialMonthlyFee: Int
+    ) {
+        val newStudent = Student(
+            id = "S-${System.currentTimeMillis() % 100000}",
+            name = name,
+            rollNo = rollNo,
+            batchId = "B-${batchName.take(3).trim()}",
+            batchName = batchName,
+            parentName = parentName,
+            parentPhone = parentPhone,
+            attendancePct = 100,
+            pendingFee = initialMonthlyFee
+        )
+        repository.addStudent(newStudent, initialMonthlyFee)
+        _showAddStudentDialog.value = false
+    }
+
+    fun updateStudent(student: Student) {
+        repository.updateStudent(student)
+    }
+
+    fun deleteStudent(studentId: String) {
+        repository.deleteStudent(studentId)
+    }
+
+    // --- Fee Actions ---
+    fun addFeeRecord(
+        studentName: String,
+        rollNo: String,
+        batchName: String,
+        amountDue: Int,
+        dueDate: String,
+        parentPhone: String
+    ) {
+        val newFee = FeeRecord(
+            id = "F-${System.currentTimeMillis() % 100000}",
+            studentId = "S-${System.currentTimeMillis() % 10000}",
+            studentName = studentName,
+            rollNo = rollNo,
+            batchName = batchName,
+            amountDue = amountDue,
+            dueDate = dueDate,
+            daysLate = 0,
+            isPaid = false,
+            parentPhone = parentPhone
+        )
+        repository.addFeeRecord(newFee)
+        _showAddFeeDialog.value = false
+    }
+
+    fun deleteFeeRecord(feeId: String) {
+        repository.deleteFeeRecord(feeId)
+    }
+
+    fun markFeePaid(feeId: String, mode: String = "UPI") {
+        repository.markFeePaid(feeId, mode)
+    }
+
+    // --- Attendance Actions ---
     fun toggleAttendance(studentId: String) {
         repository.toggleAttendance(studentId)
     }
@@ -141,10 +253,21 @@ class TuitionViewModel(
         repository.markAllPresentForSelectedBatch()
     }
 
-    fun markFeePaid(feeId: String, mode: String = "UPI") {
-        repository.markFeePaid(feeId, mode)
+    // --- Profile Actions ---
+    fun updateCentreProfile(centre: TuitionCentre) {
+        repository.updateCentreProfile(centre)
     }
 
+    // --- Demo Data & Reset Actions ---
+    fun loadDemoData() {
+        repository.loadDemoData()
+    }
+
+    fun clearAllData() {
+        repository.clearAllData()
+    }
+
+    // --- Homework & Lead Actions ---
     fun toggleHomework(homeworkId: String) {
         repository.toggleHomework(homeworkId)
     }
@@ -156,6 +279,15 @@ class TuitionViewModel(
     fun addEnquiry(studentName: String, gradeClass: String, parentName: String, parentPhone: String, subject: String, referredBy: String) {
         repository.addEnquiry(studentName, gradeClass, parentName, parentPhone, subject, referredBy)
         _showAddLeadDialog.value = false
+    }
+
+    // --- Dialog Visibility Controls ---
+    fun setShowAddStudentDialog(show: Boolean) {
+        _showAddStudentDialog.value = show
+    }
+
+    fun setShowAddFeeDialog(show: Boolean) {
+        _showAddFeeDialog.value = show
     }
 
     fun setShowAllReminderDialog(show: Boolean) {
@@ -180,6 +312,14 @@ class TuitionViewModel(
 
     fun setShowWhatsAppApiSettings(show: Boolean) {
         _showWhatsAppApiSettings.value = show
+    }
+
+    fun setShowParentPortalDialog(show: Boolean) {
+        _showParentPortalDialog.value = show
+    }
+
+    fun setShowTestsReportDialog(show: Boolean) {
+        _showTestsReportDialog.value = show
     }
 
     // Communication triggers
@@ -221,3 +361,4 @@ class TuitionViewModel(
         repository.launchUpiPayment(context, studentName, amount)
     }
 }
+

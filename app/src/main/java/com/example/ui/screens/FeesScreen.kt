@@ -355,7 +355,7 @@ fun FeesScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "Template includes: Student name, exact amount due, days late, and your UPI ID (${viewModel.centreInfo.upiId}) with instant 1-tap payment link.",
+                            text = "Template includes: Student name, exact amount due, days late, and your UPI ID (${viewModel.centreInfo.value.upiId}) with instant 1-tap payment link.",
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = TextSecondary,
                                 fontSize = 11.sp

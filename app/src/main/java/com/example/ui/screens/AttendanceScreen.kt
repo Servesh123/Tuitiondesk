@@ -339,14 +339,62 @@ fun AttendanceScreen(
                 }
             }
 
-            items(batchStudents, key = { it.studentId }) { student ->
-                StudentAttendanceRow(
-                    student = student,
-                    onToggle = { viewModel.toggleAttendance(student.studentId) }
-                )
+            if (batchStudents.isEmpty()) {
+                item {
+                    Card(
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = SurfaceWhite),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.EventBusy,
+                                contentDescription = null,
+                                tint = TextSecondary,
+                                modifier = Modifier.size(44.dp)
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "No students in this batch",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Add students to $selectedBatch in the Students tab, or switch to another batch above.",
+                                style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Button(
+                                onClick = { viewModel.setTab(com.example.viewmodel.TuitionTab.STUDENTS) },
+                                colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Add Students to Batch")
+                            }
+                        }
+                    }
+                }
+            } else {
+                items(batchStudents, key = { it.studentId }) { student ->
+                    StudentAttendanceRow(
+                        student = student,
+                        onToggle = { viewModel.toggleAttendance(student.studentId) }
+                    )
+                }
             }
         }
     }
+
 
     // Modal: Absent Parent Alert Confirmation & Broadcast
     if (showAbsentDialog) {
